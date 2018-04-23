@@ -1,0 +1,99 @@
+---
+title: "ES 207 Homework 7"
+author: "Christiana Ade"
+date: "April 22, 2018"
+output: html_notebook
+---
+
+```{r}
+# read in packages
+require(tidyverse)
+require(moments)
+require(smwrBase)
+require(lubridate)
+library(dplyr)
+require(corrplot)
+
+# personal resources
+  # https://stackoverflow.com/questions/9723208/aggregate-summarize-multiple-variables-per-group-e-g-sum-mean?noredirect=1&lq=1
+# https://stackoverflow.com/questions/26665319/removing-na-in-dplyr-pipe 
+# https://stackoverflow.com/questions/45551918/how-to-remove-na-in-summarize-all-to-summarize-mutliple-col-at-the-same-time
+
+```
+
+### Question 1
+**For the Water Years 2005-2012, develop a predictive model of the mean monthly Chl-a concentration in the California Bay Delta using  other mean monthly water quality variables.**
+
+```{r}
+# read in dataset 
+wq <- read_csv("./Data/BayDeltaWQ.csv", col_names = TRUE, na = c("NA", "n/p", "n/a"), guess_max = 30000 )
+
+## Tidy the dataset
+# compute water year
+# remove years that are not 2005 - 2012
+# compute mean based on monthly for all columns 
+# drop rows with NA's in Chl-a and any columns that just have NA values
+
+wq <- wq %>% mutate(SampleDate = mdy(SampleDate)) %>%
+  mutate(water_year = waterYear(SampleDate)) %>%
+  mutate(month_year = format(SampleDate, "%Y-%m"))%>% 
+  filter( water_year >= 2005 & water_year <= 2012 ) %>%
+  group_by(StationCode, month_year) %>%
+  summarise_if(is.numeric, mean, na.rm = T) %>% 
+  drop_na(`Chlorophyll a`) %>% discard(~all(is.na(.x))) %>%
+  map_df(~.x)
+
+# # curious about how many NA's there are in each column
+#  wq %>% summarise_all(funs(sum(is.na(.))))
+# how many complete cases
+# wq2 <-  wq[complete.cases(wq), ]
+
+               
+```
+
+```{r}
+## Plot the remaining variables against chl-a
+# faceted plots
+wq %>%
+  gather(-`Chlorophyll a`, key = "var", value = "value") %>%
+  ggplot(aes(x = `Chlorophyll a`, y = value)) +
+    geom_point() +
+    facet_wrap(~ var, scales = "free") +
+    theme_bw()
+
+## Individual plots
+myVarsList <- names(wq)
+myVarsList <- myList[!myList %in% c("StationCode","month_year","Chlorophyll a","SiteDepth","Depth")]
+
+myPlot <- function(x){
+  ggplot(wq, aes(x = `Chlorophyll a`, y= wq[,x])) + geom_point() + scale_y_continuous(name = x) +
+    scale_x_continuous(lim = c(0,50))
+}
+
+lapply(myVarsList, myPlot)
+
+```
+Not looking extremely promising for any of the variables. Several look as though you would want to use quartile regression, there are a few weak linear relationships. 
+
+
+```{r}
+## Check pairs of variables 
+# drop rows with NA's in Chl-a 
+
+# multiple correlations
+test <- dplyr::select(wq, `Chlorophyll a`, myVarsList)
+
+# Check covariance 
+cov(test,use = "pairwise.complete.obs")
+
+# check correlation 
+cor(test, use = "pairwise.complete.obs")
+cor(test, use = "pairwise.complete.obs", method = "kendall")
+cor(test, use = "pairwise.complete.obs", method = "spearman")
+
+# should make a table that has only the highest positive and negative correlations
+mCor <- cor(test, use = "pairwise.complete.obs")
+corrplot(mCor, method = "number")
+```
+  
+  
