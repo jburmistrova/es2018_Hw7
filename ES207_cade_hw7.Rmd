@@ -13,6 +13,8 @@ require(smwrBase)
 require(lubridate)
 library(dplyr)
 require(corrplot)
+require(stringr)
+require(broom)
 
 # personal resources
   # https://stackoverflow.com/questions/9723208/aggregate-summarize-multiple-variables-per-group-e-g-sum-mean?noredirect=1&lq=1
@@ -46,7 +48,7 @@ wq <- wq %>% mutate(SampleDate = mdy(SampleDate)) %>%
 # # curious about how many NA's there are in each column
 #  wq %>% summarise_all(funs(sum(is.na(.))))
 # how many complete cases
-# wq2 <-  wq[complete.cases(wq), ]
+ wq.cc <-  wq[complete.cases(wq), ]
 
                
 ```
@@ -63,7 +65,7 @@ wq %>%
 
 ## Individual plots
 myVarsList <- names(wq)
-myVarsList <- myList[!myList %in% c("StationCode","month_year","Chlorophyll a","SiteDepth","Depth")]
+myVarsList <- myList[!myList %in% c("StationCode","Chlorophyll a","SiteDepth","Depth")]
 
 myPlot <- function(x){
   ggplot(wq, aes(x = `Chlorophyll a`, y= wq[,x])) + geom_point() + scale_y_continuous(name = x) +
@@ -73,27 +75,159 @@ myPlot <- function(x){
 lapply(myVarsList, myPlot)
 
 ```
-Not looking extremely promising for any of the variables. Several look as though you would want to use quartile regression, there are a few weak linear relationships. 
+Not looking extremely promising for most of the variables. Several look as though you would want to use quantile regression, there are a few weak linear relationships. 
 
 
 ```{r}
-## Check pairs of variables 
-# drop rows with NA's in Chl-a 
 
 # multiple correlations
-test <- dplyr::select(wq, `Chlorophyll a`, myVarsList)
+wq2 <- dplyr::select(wq, `Chlorophyll a`, myVarsList)
 
 # Check covariance 
-cov(test,use = "pairwise.complete.obs")
+cov(wq2,use = "pairwise.complete.obs")
 
 # check correlation 
-cor(test, use = "pairwise.complete.obs")
-cor(test, use = "pairwise.complete.obs", method = "kendall")
-cor(test, use = "pairwise.complete.obs", method = "spearman")
+pearCor <- as.data.frame(cor(wq2, use = "pairwise.complete.obs"))
+kCor <- as.data.frame(cor(wq2, use = "pairwise.complete.obs", method = "kendall"))
+sCor   <- as.data.frame(cor(wq2, use = "pairwise.complete.obs", method = "spearman"))
 
-# should make a table that has only the highest positive and negative correlations
-mCor <- cor(test, use = "pairwise.complete.obs")
-corrplot(mCor, method = "number")
+# linear model all data
+lm.all <- lm(`Chlorophyll a` ~ ., data = wq2)
+ summary(lm.all)
+# step all data
+ lms <- step(lm(`Chlorophyll a` ~ ., data = wq2))
+lms
 ```
-  
-  
+
+While I could fit a model with all 25 of these variables. I find it unlikely given the correlation tests above and the scatter plots that all of them would contribute to a "good" model. Therefore, I am going to reduce the variables that I test a step model on using the above correlations.
+
+```{r}
+# Intial variable reduction 
+r <-  subset(pearCor,`Chlorophyll a` >= 0.25 )
+x <- subset(kCor,`Chlorophyll a` >= 0.25 )[,1]
+s <- subset(sCor,`Chlorophyll a` >= 0.25 )[,1]
+
+r
+x
+s
+
+```
+
+Based on the above information- Fluorescence, pH, Kjeldahl Nitrogen (Total), Pheophytin a, Temperature will be included in my step model. I am aware that this is not the most accurate to go about this. For instance, some of the variables most likely do not have linear relationships and thus these correlation statistics are not applicable. Also, the cut off point of 0.25 is pretty arbitrary, but was used because of the low correlation values accross the board.
+
+I am honestly really struggling with this. In order to do a step model, I would think that I need complete cases so that the observations all line up appropriately. 
+Either way from my modeling selection if I use wq.cc (complete cases) or all the data then the best model I am getting is with all 5 variables included. However, individual models were not included with temperature and ph etc which would be problematic. I must really be messing something up.
+
+```{r}
+# individual models
+lm.null <- lm(`Chlorophyll a` ~ 1, data = wq.cc); summary(lm.null)
+lm.pa <- lm(`Chlorophyll a` ~ `Pheophytin a`, data = wq.cc); summary(lm.pa)
+lm.pa.ph <- lm(`Chlorophyll a` ~ `Pheophytin a` + pH, data = wq2); summary(lm.pa.ph)
+lm.pa.ph.fl <- lm(`Chlorophyll a` ~ `Pheophytin a` + pH + Fluorescence, data = wq.cc); summary(lm.pa.ph.fl)
+lm.pa.ph.fl.t <- lm(`Chlorophyll a` ~ `Pheophytin a` + pH + Fluorescence + Temperature, data = wq.cc); summary(lm.pa.ph.fl.t)
+lm.pa.ph.fl.t.n <- lm(`Chlorophyll a` ~ `Pheophytin a` + pH + Fluorescence + Temperature + `Kjeldahl Nitrogen (Total)`, data = wq.cc); summary(lm.pa.ph.fl.t.n)
+
+# broom 
+lms <- list(null=lm.null, chl.pa = lm.pa, chl.pa.ph = lm.pa.ph, chl.pa.ph.fl = lm.pa.ph.fl, chl.pa.ph.fl.t = lm.pa.ph.fl.t, chl.pa.ph.fl.t.n = lm.pa.ph.fl.t.n)
+lms.stats <- mapply(glance, lms)
+colnames(lms.stats) <- names(lms)
+lms.stats
+
+# lowest AIC and BIC are apparently when all the variables are included for complete cases, which is only two stations
+
+
+
+
+```
+
+
+
+```{r}
+
+# step wise model for complete cases
+
+modStep <- step(lm(`Chlorophyll a` ~ Fluorescence + pH + `Kjeldahl Nitrogen (Total)` + `Pheophytin a` + Temperature , data = wq3))
+
+plot(wq.cc$`Chlorophyll a`,wq.cc$pH)
+plot(wq.cc$`Chlorophyll a`,wq.cc$`Pheophytin a`)
+plot(wq.cc$`Chlorophyll a`,wq.cc$Temperature)
+
+
+#anova to test variance of variables
+anova(lm.pa.ph.fl.t.n)
+
+```
+
+```{r}
+# related variables
+pairs(~`Chlorophyll a` + Fluorescence + pH + `Kjeldahl Nitrogen (Total)` + `Pheophytin a` + Temperature, data = wq.cc)
+```
+
+Alright, I am assuming that I have really messed something up. I would think that of the variables I picked that Pheophytin a is the best predictor for Chlorophyll-a because they are similar. if you look at the AIC in the step though Temperautre and pH also seem to be important and it is likely that we can remove Nitrogen as a variable. If you wanted to better account for variables that are related then you would want to compute a VIF test to test for multi-collinearity. If we look at the anova for the linear model with all 5 variables (lm.pa.ph.fl.t.n) (really bad name I know), then we can determine that most of the variance is explained by Pheophytin a from looking at the F value. 
+
+
+
+### Part 2
+
+I am going to assume that my best variable was Pheophytin a
+
+```{r}
+# label wet and dry years
+# april to oct is dry 
+# nov - feb is wet
+wq.p2 <- wq3 %>% mutate(month = as.numeric(substr(month_year,6,7))) %>%
+  mutate(season = ifelse(month >= 4 & month <= 9,"dry","wet" ) )
+                         
+``` 
+
+```{r}
+# model separately
+
+chl.m1 <- lm(`Chlorophyll a`~ season, data = wq.p2); summary(chl.m1)
+chl.m2 <- lm(`Chlorophyll a` ~ `Pheophytin a`, data = wq.p2); summary(chl.m2)
+chl.m3 <- lm(`Chlorophyll a` ~ `Pheophytin a` + season, data = wq.p2); summary(chl.m3)
+
+# most variance 
+anova(chl.m3)
+
+# AIC
+AIC(chl.m1)
+AIC(chl.m2)
+AIC(chl.m3)
+```
+Much less of the variance is explained by the season than Pheophytin a. The best model is both together. 
+I tested it out with Temperature and those models are much more closely related
+
+
+```{r}
+# differences between means of the seasons
+wq.means <- wq.p2 %>% group_by(season) %>% summarise_if(is.numeric, mean, na.rm = T) 
+wq.means$`Chlorophyll a`
+
+# t- test on wet vs dry
+wq.wet <- filter(wq.p2, season == "wet")
+wq.dry <- filter(wq.p2, season == "dry")
+
+# signficantly different
+t.test(wq.wet$`Chlorophyll a`,wq.dry$`Chlorophyll a`)
+
+# but are they normally distributed
+wilcox.test(wq.wet$`Chlorophyll a`,wq.dry$`Chlorophyll a`)
+```
+
+
+
+The residuals are not normally distributed
+```{r}
+# residuals calculation
+chl.m3.res <-  rstandard(chl.m3) # can also use function residual()
+qqnorm(chl.m3.res)
+qqline(chl.m3.res)
+```
+
+
+```{r}
+
+```
+
+
