@@ -5,6 +5,39 @@ date: "April 22, 2018"
 output: html_notebook
 ---
 
+### JULIA'S COMMENTS ###
+
+* Great use of comments, very clean coding and easy to follow. 
+* What I did to choose the variables was I looked at EPA's suggestions for explanatory factors of Chl-a and so I choose to explore/limit it to the nutrients, temperature and oxygen. Though temperature and oxygen were highly correlated so I thought that maybe I should just choose one but I wasn't sure which one. 
+* I really like the way you labeled your wet and dry seasons, very clean 
+* I don't have any suggestions for any code, as Christiana's code looks cleaner, more flexible, and uses less for loops than my code
+
+This is Erin's code, but if you want to compare the models' AIC and BIC in a nice ggplot, I suggest using this code:
+Thanks Erin!
+
+lms <- list(ALL MODELS GO HERE)
+lms.stats <- mapply(glance, lms)
+colnames(lms.stats) <- names(lms)
+lms.stats
+
+aic <- as.data.frame(unlist(lms.stats["AIC",]))
+colnames(aic) <- "AIC"
+aic
+
+bic <- as.data.frame(unlist(lms.stats["BIC",]))
+colnames(bic) <- "BIC"
+bic
+
+aic.bic <- cbind(aic,bic)
+a.b <- aic.bic %>% 
+  rownames_to_column() %>% 
+  gather(metric, value, -rowname) %>% 
+  ggplot(aes(rowname, value, fill = metric)) +
+  geom_bar(position = "dodge", stat = "identity")
+a.b
+
+### END OF JULIA'S COMMENTS ###
+
 ```{r}
 # read in packages
 require(tidyverse)
